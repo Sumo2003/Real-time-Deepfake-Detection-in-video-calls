@@ -6,3 +6,4 @@ scipy
 tf-keras==2.16.0
 matplotlib
 protobuf==4.25.9
+reportlab
