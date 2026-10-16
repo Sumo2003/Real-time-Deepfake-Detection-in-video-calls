@@ -1,5 +1,6 @@
 deepface
-opencv-python-headless==4.11.0.86tensorflow==2.16.1
+opencv-python-headless==4.11.0.86
+tensorflow==2.16.1
 numpy
 scipy
 tf-keras==2.16.0
