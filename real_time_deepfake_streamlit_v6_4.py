@@ -89,9 +89,10 @@ if os.path.exists(REFS_DIR):
             refs.append(np.array(emb))
 
 if len(refs) == 0:
-    st.warning("⚠️ No reference images found in 'refs' folder.")
-    st.stop()
-
+    st.warning(
+        "⚠️ No reference images found in 'refs' folder. "
+        "Please add reference images to enable similarity-based detection."
+    )
 # -------------------------------------------------------
 # FUNCTIONS
 # -------------------------------------------------------
