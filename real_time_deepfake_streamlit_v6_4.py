@@ -12,6 +12,8 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 import time
+import av
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 
 # -------------------------------------------------------
 # PAGE CONFIG
@@ -177,73 +179,56 @@ run_live = st.button("▶️ Start Live Detection")
 # -------------------------------------------------------
 # LIVE DETECTION
 # -------------------------------------------------------
-if run_live:
-    cap = cv2.VideoCapture(0)
-    emb_window = deque(maxlen=LIVENESS_WINDOW)
-    confidences, labels = [], []
+class DeepfakeProcessor(VideoProcessorBase):
+    def __init__(self):
+        self.emb_window = deque(maxlen=LIVENESS_WINDOW)
 
-    if not cap.isOpened():
-        st.error("❌ Cannot access webcam.")
-    else:
-        st.info("✅ Webcam connected. Press 'Stop Live Detection' to end.")
-        stop_button = st.button("⏹️ Stop Live Detection")
+    def recv(self, video_frame):
+        frame = video_frame.to_ndarray(format="bgr24")
+        frame = cv2.flip(frame, 1)
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                st.error("Camera read error.")
-                break
+        emb = get_face_embedding(frame)
 
-            frame = cv2.flip(frame, 1)
-            emb = get_face_embedding(frame)
+        if emb is not None:
+            self.emb_window.append(emb)
 
-            if emb is not None:
-                emb_window.append(emb)
-                if len(emb_window) >= 2:
-                    sims = [1 - cosine(a, b) for a, b in zip(list(emb_window)[:-1], list(emb_window)[1:])]
-                    mean_sim = np.mean(sims)
-                    is_live = mean_sim <= LIVENESS_SIM_THRESHOLD
-                else:
-                    mean_sim, is_live = None, True
+            if len(self.emb_window) >= 2:
+                sims = [
+                    1 - cosine(a, b)
+                    for a, b in zip(
+                        list(self.emb_window)[:-1],
+                        list(self.emb_window)[1:]
+                    )
+                ]
+                mean_sim = float(np.mean(sims))
+                is_live = mean_sim <= LIVENESS_SIM_THRESHOLD
+            else:
+                is_live = True
 
-                sim = get_similarity(emb)
-                confidence = int(sim * 100)
+            sim = get_similarity(emb)
+            confidence = max(0, min(100, int(sim * 100)))
 
-                if not is_live:
-                    label = "Suspicious (Static Face)"
-                    color = (0, 0, 255)
-                elif sim >= threshold:
-                    label = f"Authentic ({confidence}%)"
-                    color = (0, 255, 0)
-                else:
-                    label = f"Suspicious ({confidence}%)"
-                    color = (0, 0, 255)
+            if not is_live:
+                label = "Suspicious (Static Face)"
+                color = (0, 0, 255)
+            elif sim >= threshold:
+                label = f"Authentic ({confidence}%)"
+                color = (0, 255, 0)
+            else:
+                label = f"Suspicious ({confidence}%)"
+                color = (0, 0, 255)
 
-                status_placeholder.markdown(f"### 🧾 {label}")
-                confidence_placeholder.progress(confidence)
-                cv2.putText(frame, label, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-                FRAME_WINDOW.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            cv2.putText(
+                frame, label, (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2
+            )
+        else:
+            cv2.putText(
+                frame, "No face detected", (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2
+            )
 
-                log_to_csv(time.strftime("%H:%M:%S"), confidence, label, mean_sim)
-                confidences.append(confidence)
-                labels.append(label.split()[0])
-
-                df_chart = pd.DataFrame({"Frame": range(1, len(confidences)+1), "Confidence": confidences})
-                chart_placeholder.line_chart(df_chart, x="Frame", y="Confidence")
-
-                counts = pd.Series(labels).value_counts()
-                fig, ax = plt.subplots(figsize=(3, 3))
-                ax.pie(counts.values, labels=counts.index, autopct="%1.1f%%", startangle=90,
-                       colors=["#4CAF50", "#E53935"])
-                ax.axis("equal")
-                pie_placeholder.pyplot(fig)
-
-            if stop_button:
-                st.warning("🛑 Live detection stopped.")
-                break
-
-        cap.release()
-        cv2.destroyAllWindows()
+        return av.VideoFrame.from_ndarray(frame, format="bgr24")
 
 # -------------------------------------------------------
 # REPORT GENERATION
